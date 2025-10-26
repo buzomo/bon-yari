@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>スクリーンセーバー風インタラクティブアート</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const points = [];
+        let camera = { x: 0, y: 0, z: 0 };
+        let isFullScreen = false;
+        let autoMove = 0;
+        const Z_FAR = 1500; // 遠方のクリッピング距離（画面に映る奥行き）
+
+        function init() {
+            // 点の数を増やし、より星空らしく
+            for (let i = 0; i < 500; i++) {
+                points.push({
+                    x: Math.random() * canvas.width * 2 - canvas.width,
+                    y: Math.random() * canvas.height * 2 - canvas.height,
+                    z: Math.random() * Z_FAR, // Z_FARに合わせて初期Zを設定
+                    size: Math.random() * 3 + 1, // サイズを小さくして星らしく
+                    // 色はシンプルな白か、ランダムな色相を保持
+                    hue: Math.random() * 360,
+                    velocity: {
+                        x: (Math.random() - 0.5) * 0.1, // 点の動きを極めて遅く
+                        y: (Math.random() - 0.5) * 0.1,
+                        z: (Math.random() - 0.5) * 0.5 - 1 // 全体的に奥へ流れるような動きも加える
+                    }
+                });
+            }
+
+            // マウスイベントはインタラクションとして残しますが、スクリーンセーバー利用時は操作しない想定です
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('resize', onResize);
+            window.addEventListener('contextmenu', onContextMenu);
+            requestAnimationFrame(update);
+        }
+
+        function onMouseMove(event) {
+            // マウスの影響をさらに弱く
+            camera.x = (event.clientX - canvas.width / 2) * 0.1;
+            camera.y = (event.clientY - canvas.height / 2) * 0.1;
+        }
+
+        function onResize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        function onContextMenu(event) {
+            event.preventDefault();
+            // フルスクリーン処理は残します
+            if (!isFullScreen) {
+                requestFullscreen();
+            } else {
+                exitFullscreen();
+            }
+        }
+        
+        // フルスクリーン関数群は省略（元のコードのものを利用）
+        function requestFullscreen() {
+             if (canvas.requestFullscreen) {
+                canvas.requestFullscreen();
+            } else if (canvas.mozRequestFullScreen) {
+                canvas.mozRequestFullScreen();
+            } else if (canvas.webkitRequestFullscreen) {
+                canvas.webkitRequestFullscreen();
+            } else if (canvas.msRequestFullscreen) {
+                canvas.msRequestFullscreen();
+            }
+            isFullScreen = true;
+        }
+
+        function exitFullscreen() {
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.mozCancelFullScreen) {
+                document.mozCancelFullScreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+            isFullScreen = false;
+        }
+        // ここまで省略部分
+
+        function update(timestamp) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'; // 薄い残像効果（トレイル）を追加
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // カメラ移動を極めてゆっくり、滑らかに（スクリーンセーバー向け）
+            autoMove += 0.001; // 速度を大幅に低下
+            // ゆっくりとした円運動＋奥行き方向の揺らぎ
+            camera.z = Math.sin(autoMove * 0.5) * 500 + 500;
+            camera.x = Math.sin(autoMove * 0.3) * 150;
+            camera.y = Math.cos(autoMove * 0.7) * 100;
+
+            // 全体の色相をゆっくり変化
+            const globalHue = (autoMove * 10) % 360;
+
+            for (let i = 0; i < points.length; i++) {
+                const point = points[i];
+                
+                // 3D空間内での移動
+                point.x += point.velocity.x;
+                point.y += point.velocity.y;
+                point.z += point.velocity.z;
+
+                // 点が遠方・近方を過ぎたら、反対側（Z_FARの範囲内）から再登場させる
+                if (point.z < 1) point.z = Z_FAR;
+                if (point.z > Z_FAR) point.z = 1; 
+
+                // 3Dから2Dへの透視投影
+                // Z_FAR / (Z_FAR + point.z - camera.z) がスケールファクタ
+                const scale = Z_FAR / (Z_FAR + point.z - camera.z);
+                
+                // 奥行き（Z）に応じて、透明度（Alpha）とサイズを変化
+                // Zが小さい（近い）ほど大きく明るく（透明度が低い）
+                const alpha = Math.min(scale * 1.5, 1.0); // 近くに来た時に明るくなるように調整
+                
+                // HSL (色相, 彩度, 明度) を使用して色を決定
+                // H: 個々の点のランダムな色相 + グローバル色相の変化
+                // S: 100%
+                // L: 50%
+                ctx.fillStyle = `hsla(
+                    ${(point.hue + globalHue) % 360}, 
+                    100%, 
+                    50%, 
+                    ${alpha}
+                )`;
+
+                ctx.beginPath();
+                ctx.arc(
+                    point.x * scale + canvas.width / 2 + camera.x * scale,
+                    point.y * scale + canvas.height / 2 + camera.y * scale,
+                    point.size * scale, // 投影スケールをサイズにも適用
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+            }
+
+            requestAnimationFrame(update);
+        }
+
+        init();
+    </script>
+</body>
+</html>
